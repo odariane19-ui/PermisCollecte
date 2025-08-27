@@ -25,7 +25,7 @@ export async function generatePermitCard(
   });
 
   const chunks: Buffer[] = [];
-  doc.on('data', chunk => chunks.push(chunk));
+  doc.on('data', (chunk: Buffer) => chunks.push(chunk));
 
   // Background gradient
   doc.rect(0, 0, cardWidth, cardHeight)
@@ -137,7 +137,7 @@ export async function generateBatchCards(
   });
 
   const chunks: Buffer[] = [];
-  doc.on('data', chunk => chunks.push(chunk));
+  doc.on('data', (chunk: Buffer) => chunks.push(chunk));
 
   const cardWidth = (pageWidth - 60) / 2; // 2 columns
   const cardHeight = (pageHeight - 100) / 5; // 5 rows

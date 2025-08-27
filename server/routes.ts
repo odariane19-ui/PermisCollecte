@@ -1,6 +1,10 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import { createServer, type Server } from "http";
 import multer from "multer";
+
+interface MulterRequest extends Request {
+  file?: Express.Multer.File;
+}
 import { storage } from "./storage";
 import { generateQRPayload, verifyQRSignature, getPublicKey } from "./services/qr-crypto";
 import { generatePermitCard, generateBatchCards } from "./services/pdf-generator";
@@ -37,7 +41,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create permit
-  app.post('/api/permits', upload.single('photo'), async (req, res) => {
+  app.post('/api/permits', upload.single('photo'), async (req: MulterRequest, res) => {
     try {
       // Parse form data
       const permitData = JSON.parse(req.body.permitData);

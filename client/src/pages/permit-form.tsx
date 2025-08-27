@@ -520,6 +520,7 @@ export default function PermitForm() {
                             <Input 
                               placeholder="Numéro IFU" 
                               {...field} 
+                              value={field.value || ''}
                               data-testid="input-num-ifu"
                             />
                           </FormControl>
@@ -539,6 +540,7 @@ export default function PermitForm() {
                             <Input 
                               placeholder="Numéro RAVIP" 
                               {...field} 
+                              value={field.value || ''}
                               data-testid="input-num-ravip"
                             />
                           </FormControl>
@@ -636,6 +638,7 @@ export default function PermitForm() {
                               <Input 
                                 placeholder="Nom du bateau" 
                                 {...field} 
+                                value={field.value || ''}
                                 data-testid="input-nom-embarcation"
                               />
                             </FormControl>
@@ -653,6 +656,7 @@ export default function PermitForm() {
                               <Input 
                                 placeholder="Numéro d'immatriculation" 
                                 {...field} 
+                                value={field.value || ''}
                                 data-testid="input-num-embarcation"
                               />
                             </FormControl>
@@ -679,7 +683,7 @@ export default function PermitForm() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Type d'engin</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <Select onValueChange={field.onChange} defaultValue={field.value || ''}>
                             <FormControl>
                               <SelectTrigger data-testid="select-type-engin">
                                 <SelectValue placeholder="Sélectionner" />
@@ -707,6 +711,7 @@ export default function PermitForm() {
                               placeholder="Liste des espèces ciblées" 
                               rows={3} 
                               {...field} 
+                              value={field.value || ''}
                               data-testid="input-especes-ciblees"
                             />
                           </FormControl>

@@ -83,7 +83,11 @@ export class MemStorage implements IStorage {
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = randomUUID();
-    const user: User = { ...insertUser, id };
+    const user: User = { 
+      ...insertUser, 
+      id,
+      role: insertUser.role || "admin"
+    };
     this.users.set(id, user);
     return user;
   }
@@ -121,7 +125,8 @@ export class MemStorage implements IStorage {
       id: permitId,
       fisherId,
       horodateur: new Date(),
-      syncStatus: "synced"
+      syncStatus: "synced",
+      categorie: permitData.permit.categorie || null
     };
     this.permits.set(permitId, permit);
 
@@ -130,9 +135,12 @@ export class MemStorage implements IStorage {
     if (permitData.vessel) {
       const vesselId = randomUUID();
       vessel = {
-        ...permitData.vessel,
         id: vesselId,
-        permitId
+        permitId,
+        nomEmbarcation: permitData.vessel.nomEmbarcation || null,
+        numEmbarcation: permitData.vessel.numEmbarcation || null,
+        siteDebarquement: permitData.vessel.siteDebarquement || null,
+        siteHabitation: permitData.vessel.siteHabitation || null
       };
       this.vessels.set(vesselId, vessel);
     }
@@ -144,7 +152,10 @@ export class MemStorage implements IStorage {
       technique = {
         ...permitData.technique,
         id: techniqueId,
-        permitId
+        permitId,
+        typeEngin: permitData.technique.typeEngin || null,
+        techniquePeche: permitData.technique.techniquePeche || null,
+        especesCiblees: permitData.technique.especesCiblees || null
       };
       this.techniques.set(techniqueId, technique);
     }
@@ -286,7 +297,9 @@ export class MemStorage implements IStorage {
     const card: Card = {
       ...insertCard,
       id,
-      createdAt: new Date()
+      createdAt: new Date(),
+      version: insertCard.version || 1,
+      pdfUrl: insertCard.pdfUrl || null
     };
     this.cards.set(id, card);
     return card;
@@ -302,7 +315,11 @@ export class MemStorage implements IStorage {
 
   async createMedia(insertMedia: InsertMedia): Promise<Media> {
     const id = randomUUID();
-    const media: Media = { ...insertMedia, id };
+    const media: Media = { 
+      ...insertMedia, 
+      id,
+      base64Data: insertMedia.base64Data || null
+    };
     this.media.set(id, media);
     return media;
   }
