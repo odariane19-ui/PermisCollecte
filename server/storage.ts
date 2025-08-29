@@ -1,23 +1,22 @@
 import { 
   type Fisher, type Permit, type Vessel, type Technique, 
-  type Media, type Card, type User, type ScanLog,
+  type Media, type Card, type User, type ScanLog, type Config,
   type InsertFisher, type InsertPermit, type InsertVessel, 
   type InsertTechnique, type InsertMedia, type InsertCard, 
-  type InsertUser, type FullPermit, type CreatePermit 
+  type InsertUser, type InsertConfig, type FullPermit, type CreatePermit 
 } from "@shared/schema";
 import { randomUUID } from "crypto";
+import bcrypt from "bcrypt";
 
 export interface IStorage {
-  // User management
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  getUsers(): Promise<User[]>;
 
-  // Fisher management
   createFisher(fisher: InsertFisher): Promise<Fisher>;
   getFisher(id: string): Promise<Fisher | undefined>;
 
-  // Permit management
   createPermit(permitData: CreatePermit): Promise<FullPermit>;
   getPermit(id: string): Promise<FullPermit | undefined>;
   getPermits(filters?: {
@@ -30,20 +29,22 @@ export interface IStorage {
   updatePermit(id: string, permit: Partial<InsertPermit>): Promise<FullPermit | undefined>;
   deletePermit(id: string): Promise<boolean>;
 
-  // Card management
   createCard(card: InsertCard): Promise<Card>;
   getCard(id: string): Promise<Card | undefined>;
   getCardByPermitId(permitId: string): Promise<Card | undefined>;
 
-  // Media management
   createMedia(media: InsertMedia): Promise<Media>;
   getMediaByPermitId(permitId: string): Promise<Media[]>;
 
-  // Scan logs
   createScanLog(log: Omit<ScanLog, 'id' | 'scanDate'>): Promise<ScanLog>;
   getScanLogs(cardId?: string): Promise<ScanLog[]>;
 
-  // Statistics
+  // Config management
+  getConfigs(): Promise<Config[]>;
+  getConfigsByType(type: string): Promise<Config[]>;
+  createConfig(config: InsertConfig): Promise<Config>;
+  deleteConfig(id: string): Promise<boolean>;
+
   getStats(): Promise<{
     totalPermits: number;
     activePermits: number;
@@ -61,15 +62,59 @@ export class MemStorage implements IStorage {
   private cards: Map<string, Card> = new Map();
   private users: Map<string, User> = new Map();
   private scanLogs: Map<string, ScanLog> = new Map();
+  private configs: Map<string, Config> = new Map();
 
   constructor() {
-    // Create default admin user
+    this.initializeDefaultData();
+  }
+
+  private async initializeDefaultData() {
+    // Create default users
     const adminId = randomUUID();
+    const userId = randomUUID();
+    
     this.users.set(adminId, {
       id: adminId,
       username: "admin",
-      password: "$2b$10$K5HJdSqz8xj7eQIREo3Kt.K5HJdSqz8xj7eQIREo3Kt", // password: "admin123"
+      password: await bcrypt.hash("admin123", 10),
       role: "admin"
+    });
+
+    this.users.set(userId, {
+      id: userId,
+      username: "user",
+      password: await bcrypt.hash("user123", 10),
+      role: "user"
+    });
+
+    // Initialize default configs
+    const defaultConfigs = [
+      // Categories
+      { type: 'categories', value: 'A', label: 'Catégorie A' },
+      { type: 'categories', value: 'B', label: 'Catégorie B' },
+      { type: 'categories', value: 'C', label: 'Catégorie C' },
+      
+      // Zones
+      { type: 'zones', value: 'cotiere', label: 'Côtière' },
+      { type: 'zones', value: 'lagunaire', label: 'Lagunaire' },
+      { type: 'zones', value: 'haute-mer', label: 'Haute mer' },
+      { type: 'zones', value: 'aheme', label: 'Ahémé' },
+      
+      // Types de pêche
+      { type: 'types_peche', value: 'artisanale', label: 'Artisanale' },
+      { type: 'types_peche', value: 'industrielle', label: 'Industrielle' },
+      { type: 'types_peche', value: 'sportive', label: 'Sportive' },
+      { type: 'types_peche', value: 'eau-profondes', label: 'Pêcheur en Eau Profondes' },
+    ];
+
+    defaultConfigs.forEach(config => {
+      const id = randomUUID();
+      this.configs.set(id, {
+        ...config,
+        id,
+        active: true,
+        createdAt: new Date()
+      });
     });
   }
 
@@ -83,13 +128,22 @@ export class MemStorage implements IStorage {
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = randomUUID();
+    const hashedPassword = await bcrypt.hash(insertUser.password, 10);
     const user: User = { 
       ...insertUser, 
       id,
-      role: insertUser.role || "admin"
+      password: hashedPassword,
+      role: insertUser.role || "user"
     };
     this.users.set(id, user);
     return user;
+  }
+
+  async getUsers(): Promise<User[]> {
+    return Array.from(this.users.values()).map(user => ({
+      ...user,
+      password: '[HIDDEN]'
+    }));
   }
 
   async createFisher(insertFisher: InsertFisher): Promise<Fisher> {
@@ -111,7 +165,6 @@ export class MemStorage implements IStorage {
     const fisherId = randomUUID();
     const permitId = randomUUID();
 
-    // Create fisher
     const fisher: Fisher = {
       ...permitData.fisher,
       id: fisherId,
@@ -119,18 +172,15 @@ export class MemStorage implements IStorage {
     };
     this.fishers.set(fisherId, fisher);
 
-    // Create permit
     const permit: Permit = {
       ...permitData.permit,
       id: permitId,
       fisherId,
       horodateur: new Date(),
       syncStatus: "synced",
-      categorie: permitData.permit.categorie || null
     };
     this.permits.set(permitId, permit);
 
-    // Create vessel if provided
     let vessel: Vessel | undefined;
     if (permitData.vessel) {
       const vesselId = randomUUID();
@@ -145,7 +195,6 @@ export class MemStorage implements IStorage {
       this.vessels.set(vesselId, vessel);
     }
 
-    // Create technique if provided
     let technique: Technique | undefined;
     if (permitData.technique) {
       const techniqueId = randomUUID();
@@ -160,7 +209,6 @@ export class MemStorage implements IStorage {
       this.techniques.set(techniqueId, technique);
     }
 
-    // Create media if photo provided
     let media: Media[] = [];
     if (permitData.photo) {
       const mediaId = randomUUID();
@@ -215,7 +263,6 @@ export class MemStorage implements IStorage {
   }): Promise<FullPermit[]> {
     let permits = Array.from(this.permits.values());
 
-    // Apply filters
     if (filters?.zone) {
       permits = permits.filter(p => p.zonePeche === filters.zone);
     }
@@ -244,14 +291,12 @@ export class MemStorage implements IStorage {
       });
     }
 
-    // Convert to FullPermit
     const fullPermits: FullPermit[] = [];
     for (const permit of permits) {
       const fullPermit = await this.getPermit(permit.id);
       if (fullPermit) fullPermits.push(fullPermit);
     }
 
-    // Apply pagination
     const offset = filters?.offset || 0;
     const limit = filters?.limit || 50;
     return fullPermits.slice(offset, offset + limit);
@@ -271,7 +316,6 @@ export class MemStorage implements IStorage {
     const permit = this.permits.get(id);
     if (!permit) return false;
 
-    // Delete related records
     Array.from(this.vessels.values())
       .filter(v => v.permitId === id)
       .forEach(v => this.vessels.delete(v.id));
@@ -342,6 +386,30 @@ export class MemStorage implements IStorage {
   async getScanLogs(cardId?: string): Promise<ScanLog[]> {
     const logs = Array.from(this.scanLogs.values());
     return cardId ? logs.filter(l => l.cardId === cardId) : logs;
+  }
+
+  async getConfigs(): Promise<Config[]> {
+    return Array.from(this.configs.values()).filter(c => c.active);
+  }
+
+  async getConfigsByType(type: string): Promise<Config[]> {
+    return Array.from(this.configs.values()).filter(c => c.type === type && c.active);
+  }
+
+  async createConfig(insertConfig: InsertConfig): Promise<Config> {
+    const id = randomUUID();
+    const config: Config = {
+      ...insertConfig,
+      id,
+      active: true,
+      createdAt: new Date()
+    };
+    this.configs.set(id, config);
+    return config;
+  }
+
+  async deleteConfig(id: string): Promise<boolean> {
+    return this.configs.delete(id);
   }
 
   async getStats(): Promise<{

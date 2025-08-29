@@ -5,23 +5,68 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useEffect, useState } from "react";
 
+import Login from "@/pages/login";
 import AgentDashboard from "@/pages/agent-dashboard";
 import PermitForm from "@/pages/permit-form";
 import AdminDashboard from "@/pages/admin-dashboard";
+import AdminConfig from "@/pages/admin-config";
 import CameraCapture from "@/pages/camera-capture";
 import QRScanner from "@/pages/qr-scanner";
 import BottomNav from "@/components/bottom-nav";
 
+function ProtectedRoute({ children, requiredRole }: { children: React.ReactNode; requiredRole?: string }) {
+  const token = localStorage.getItem('authToken');
+  const userRole = localStorage.getItem('userRole');
+
+  if (!token) {
+    return <Login />;
+  }
+
+  if (requiredRole && userRole !== requiredRole) {
+    return <div className="p-4 text-center">Accès non autorisé</div>;
+  }
+
+  return <>{children}</>;
+}
+
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={AgentDashboard} />
-      <Route path="/permit-form" component={PermitForm} />
-      <Route path="/admin" component={AdminDashboard} />
-      <Route path="/camera" component={CameraCapture} />
-      <Route path="/scanner" component={QRScanner} />
+      <Route path="/login" component={Login} />
+      <Route path="/">
+        <ProtectedRoute>
+          <AgentDashboard />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/permit-form">
+        <ProtectedRoute>
+          <PermitForm />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/admin">
+        <ProtectedRoute requiredRole="admin">
+          <AdminDashboard />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/admin/config">
+        <ProtectedRoute requiredRole="admin">
+          <AdminConfig />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/camera">
+        <ProtectedRoute>
+          <CameraCapture />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/scanner">
+        <ProtectedRoute>
+          <QRScanner />
+        </ProtectedRoute>
+      </Route>
       <Route>
-        <AgentDashboard />
+        <ProtectedRoute>
+          <AgentDashboard />
+        </ProtectedRoute>
       </Route>
     </Switch>
   );
@@ -37,7 +82,6 @@ function App() {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Register service worker for PWA
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js')
         .then((registration) => {
@@ -58,29 +102,39 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <div className="min-h-screen bg-background">
-          {/* Offline indicator */}
           <div className={`offline-indicator ${!isOnline ? 'show' : ''}`}>
             <i className="fas fa-wifi-slash mr-2"></i>
             Mode hors ligne - Les données seront synchronisées à la reconnexion
           </div>
 
-          {/* Navigation Bar */}
           <nav className="bg-primary text-primary-foreground p-4 flex items-center justify-between sticky top-0 z-50 shadow-lg">
             <div className="flex items-center space-x-3">
               <i className="fas fa-fish text-xl" data-testid="nav-logo"></i>
               <h1 className="text-lg font-semibold">Permis de Pêche</h1>
             </div>
             <div className="flex items-center space-x-3">
-              {/* Sync Status Indicator */}
               <div className="flex items-center space-x-1 text-sm" data-testid="sync-status">
                 <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-secondary' : 'bg-accent'} ${isOnline ? 'sync-indicator' : ''}`}></div>
                 <span className="hidden sm:inline">{isOnline ? 'Synchronisé' : 'Hors ligne'}</span>
               </div>
+              {localStorage.getItem('authToken') && (
+                <button
+                  onClick={() => {
+                    localStorage.removeItem('authToken');
+                    localStorage.removeItem('userRole');
+                    window.location.reload();
+                  }}
+                  className="text-sm hover:underline"
+                  data-testid="button-logout"
+                >
+                  Déconnexion
+                </button>
+              )}
             </div>
           </nav>
 
           <Router />
-          <BottomNav />
+          {localStorage.getItem('authToken') && <BottomNav />}
         </div>
         <Toaster />
       </TooltipProvider>

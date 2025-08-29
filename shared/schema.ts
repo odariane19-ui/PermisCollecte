@@ -23,13 +23,14 @@ export const permits = pgTable("permits", {
   numSerie: text("num_serie").notNull().unique(),
   dateDelivrance: text("date_delivrance").notNull(),
   dateExpiration: text("date_expiration").notNull(),
-  categorie: text("categorie"),
+  dureePermis: text("duree_permis").notNull(), // mensuel, annuel, autres
+  categorie: text("categorie").notNull(),
   ifuDisponible: boolean("ifu_disponible").notNull(),
   numIfu: text("num_ifu"),
-  numRavip: text("num_ravip"),
+  numNpi: text("num_npi"),
   faitA: text("fait_a").notNull(),
   horodateur: timestamp("horodateur").defaultNow(),
-  syncStatus: text("sync_status").default("synced"), // synced, pending, failed
+  syncStatus: text("sync_status").default("synced"),
 });
 
 export const vessels = pgTable("vessels", {
@@ -52,9 +53,9 @@ export const techniques = pgTable("techniques", {
 export const media = pgTable("media", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   permitId: varchar("permit_id").references(() => permits.id).notNull(),
-  type: text("type").notNull(), // photo_identite
+  type: text("type").notNull(),
   url: text("url").notNull(),
-  base64Data: text("base64_data"), // For offline storage
+  base64Data: text("base64_data"),
 });
 
 export const cards = pgTable("cards", {
@@ -71,7 +72,7 @@ export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
-  role: text("role").default("admin"), // admin, agent
+  role: text("role").default("user"), // admin, user
 });
 
 export const scanLogs = pgTable("scan_logs", {
@@ -79,20 +80,39 @@ export const scanLogs = pgTable("scan_logs", {
   cardId: varchar("card_id").references(() => cards.id),
   agentId: varchar("agent_id").references(() => users.id),
   scanDate: timestamp("scan_date").defaultNow(),
-  result: text("result").notNull(), // valid, invalid, expired
-  mode: text("mode").notNull(), // online, offline
+  result: text("result").notNull(),
+  mode: text("mode").notNull(),
 });
 
-// Insert schemas
+export const configs = pgTable("configs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  type: text("type").notNull(), // categories, zones, types_peche
+  value: text("value").notNull(),
+  label: text("label").notNull(),
+  active: boolean("active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Validation schemas with strict formats
+const phoneRegex = /^01\d{8}$/; // 10 digits starting with 01
+const ifuRegex = /^\d{13}$/; // Exactly 13 digits
+const npiRegex = /^\d{10}$/; // Exactly 10 digits
+
 export const insertFisherSchema = createInsertSchema(fishers).omit({
   id: true,
   createdAt: true,
+}).extend({
+  telephone: z.string().regex(phoneRegex, "Le numéro doit contenir 10 chiffres et commencer par 01"),
 });
 
 export const insertPermitSchema = createInsertSchema(permits).omit({
   id: true,
   horodateur: true,
   syncStatus: true,
+}).extend({
+  numIfu: z.string().regex(ifuRegex, "L'IFU doit contenir exactement 13 chiffres").optional(),
+  numNpi: z.string().regex(npiRegex, "Le NPI doit contenir exactement 10 chiffres").optional(),
+  dureePermis: z.enum(["mensuel", "annuel", "autres"]),
 });
 
 export const insertVesselSchema = createInsertSchema(vessels).omit({
@@ -116,13 +136,17 @@ export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
 });
 
-// Combined permit creation schema
+export const insertConfigSchema = createInsertSchema(configs).omit({
+  id: true,
+  createdAt: true,
+});
+
 export const createPermitSchema = z.object({
   fisher: insertFisherSchema,
   permit: insertPermitSchema,
   vessel: insertVesselSchema.optional(),
   technique: insertTechniqueSchema.optional(),
-  photo: z.string().optional(), // base64 photo data
+  photo: z.string().optional(),
 });
 
 // Types
@@ -134,6 +158,7 @@ export type Media = typeof media.$inferSelect;
 export type Card = typeof cards.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type ScanLog = typeof scanLogs.$inferSelect;
+export type Config = typeof configs.$inferSelect;
 
 export type InsertFisher = z.infer<typeof insertFisherSchema>;
 export type InsertPermit = z.infer<typeof insertPermitSchema>;
@@ -142,9 +167,9 @@ export type InsertTechnique = z.infer<typeof insertTechniqueSchema>;
 export type InsertMedia = z.infer<typeof insertMediaSchema>;
 export type InsertCard = z.infer<typeof insertCardSchema>;
 export type InsertUser = z.infer<typeof insertUserSchema>;
+export type InsertConfig = z.infer<typeof insertConfigSchema>;
 export type CreatePermit = z.infer<typeof createPermitSchema>;
 
-// Full permit data for display
 export type FullPermit = Permit & {
   fisher: Fisher;
   vessel?: Vessel;

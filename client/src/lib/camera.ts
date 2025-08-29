@@ -4,16 +4,41 @@ export interface CameraConstraints {
   facingMode?: 'user' | 'environment';
 }
 
+interface CameraInfo {
+  hasCamera: boolean;
+  userAgent: string;
+  platform: string;
+  isIOS: boolean;
+  isAndroid: boolean;
+  isMobile: boolean;
+}
+
 class CameraManager {
   private stream: MediaStream | null = null;
   private video: HTMLVideoElement | null = null;
+
+  getCameraInfo(): CameraInfo {
+    const userAgent = navigator.userAgent;
+    const platform = navigator.platform;
+    const isIOS = /iPad|iPhone|iPod/.test(userAgent);
+    const isAndroid = /Android/.test(userAgent);
+    const isMobile = isIOS || isAndroid || /Mobile/.test(userAgent);
+
+    return {
+      hasCamera: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+      userAgent,
+      platform,
+      isIOS,
+      isAndroid,
+      isMobile
+    };
+  }
 
   async requestPermission(): Promise<boolean> {
     try {
       const result = await navigator.permissions.query({ name: 'camera' as PermissionName });
       return result.state === 'granted';
     } catch (error) {
-      // Fallback: try to access camera directly
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
         stream.getTracks().forEach(track => track.stop());
@@ -28,10 +53,16 @@ class CameraManager {
     videoElement: HTMLVideoElement,
     constraints: CameraConstraints = {}
   ): Promise<MediaStream> {
+    const cameraInfo = this.getCameraInfo();
+    
+    if (!cameraInfo.hasCamera) {
+      throw new Error('Camera not supported on this device');
+    }
+
     const defaultConstraints = {
-      width: { ideal: 1280 },
-      height: { ideal: 720 },
-      facingMode: 'user',
+      width: { ideal: cameraInfo.isMobile ? 720 : 1280 },
+      height: { ideal: cameraInfo.isMobile ? 1280 : 720 },
+      facingMode: cameraInfo.isMobile ? 'environment' : 'user',
       ...constraints
     };
 
@@ -53,8 +84,9 @@ class CameraManager {
         videoElement.onerror = reject;
       });
     } catch (error) {
-      console.error('Error accessing camera:', error);
-      throw new Error('Unable to access camera. Please check permissions.');
+      console.error('Camera error:', error);
+      console.log('Camera info:', cameraInfo);
+      throw new Error(`Unable to access camera: ${error.message}`);
     }
   }
 
@@ -70,14 +102,11 @@ class CameraManager {
       throw new Error('Unable to create canvas context');
     }
 
-    // Set canvas size to video dimensions
     canvas.width = videoElement.videoWidth;
     canvas.height = videoElement.videoHeight;
 
-    // Draw video frame to canvas
     context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
 
-    // Convert to base64 JPEG
     return canvas.toDataURL('image/jpeg', 0.8);
   }
 
@@ -113,6 +142,16 @@ class CameraManager {
 
   isSupported(): boolean {
     return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  }
+
+  async getAvailableCameras(): Promise<MediaDeviceInfo[]> {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices.filter(device => device.kind === 'videoinput');
+    } catch (error) {
+      console.error('Error getting cameras:', error);
+      return [];
+    }
   }
 }
 

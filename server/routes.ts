@@ -1,10 +1,13 @@
 import type { Express, Request } from "express";
 import { createServer, type Server } from "http";
 import multer from "multer";
+import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
 
 interface MulterRequest extends Request {
   file?: Express.Multer.File;
 }
+
 import { storage } from "./storage";
 import { generateQRPayload, verifyQRSignature, getPublicKey } from "./services/qr-crypto";
 import { generatePermitCard, generateBatchCards } from "./services/pdf-generator";
@@ -12,26 +15,76 @@ import { createPermitSchema } from "@shared/schema";
 import { z } from "zod";
 
 const upload = multer({ storage: multer.memoryStorage() });
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
-export async function registerRoutes(app: Express): Promise<Server> {
-  // Authentication middleware (simplified)
-  const requireAuth = (req: any, res: any, next: any) => {
-    // In a real app, implement proper JWT/session authentication
+// Authentication middleware
+const requireAuth = async (req: any, res: any, next: any) => {
+  try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ message: 'Authentication required' });
     }
-    // For demo, accept any bearer token
-    next();
-  };
 
-  // Public key endpoint for QR verification
+    const token = authHeader.substring(7);
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    const user = await storage.getUser(decoded.userId);
+    
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid token' });
+    }
+
+    req.user = user;
+    next();
+  } catch (error) {
+    res.status(401).json({ message: 'Invalid token' });
+  }
+};
+
+const requireAdmin = (req: any, res: any, next: any) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ message: 'Admin access required' });
+  }
+  next();
+};
+
+export async function registerRoutes(app: Express): Promise<Server> {
+  // Authentication routes
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const { username, password } = req.body;
+      
+      const user = await storage.getUserByUsername(username);
+      if (!user) {
+        return res.status(401).json({ message: 'Identifiants incorrects' });
+      }
+
+      const isValidPassword = await bcrypt.compare(password, user.password);
+      if (!isValidPassword) {
+        return res.status(401).json({ message: 'Identifiants incorrects' });
+      }
+
+      const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '24h' });
+      
+      res.json({
+        token,
+        user: {
+          id: user.id,
+          username: user.username,
+          role: user.role
+        }
+      });
+    } catch (error) {
+      res.status(500).json({ message: 'Erreur de connexion' });
+    }
+  });
+
+  // Public key endpoint
   app.get('/api/public-key', (req, res) => {
     res.json({ publicKey: getPublicKey() });
   });
 
   // Statistics endpoint
-  app.get('/api/stats', async (req, res) => {
+  app.get('/api/stats', requireAuth, async (req, res) => {
     try {
       const stats = await storage.getStats();
       res.json(stats);
@@ -40,27 +93,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Create permit
-  app.post('/api/permits', upload.single('photo'), async (req: MulterRequest, res) => {
+  // Config management
+  app.get('/api/configs', requireAuth, async (req, res) => {
     try {
-      // Parse form data
+      const configs = await storage.getConfigs();
+      res.json(configs);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to get configs' });
+    }
+  });
+
+  app.get('/api/configs/:type', requireAuth, async (req, res) => {
+    try {
+      const configs = await storage.getConfigsByType(req.params.type);
+      res.json(configs);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to get configs' });
+    }
+  });
+
+  app.post('/api/configs', requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const config = await storage.createConfig(req.body);
+      res.json(config);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to create config' });
+    }
+  });
+
+  app.delete('/api/configs/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const success = await storage.deleteConfig(req.params.id);
+      if (!success) {
+        return res.status(404).json({ message: 'Config not found' });
+      }
+      res.json({ message: 'Config deleted' });
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to delete config' });
+    }
+  });
+
+  // User management
+  app.get('/api/users', requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const users = await storage.getUsers();
+      res.json(users);
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to get users' });
+    }
+  });
+
+  app.post('/api/users', requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const user = await storage.createUser(req.body);
+      res.json({ ...user, password: '[HIDDEN]' });
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to create user' });
+    }
+  });
+
+  // Create permit
+  app.post('/api/permits', requireAuth, upload.single('photo'), async (req: MulterRequest, res) => {
+    try {
       const permitData = JSON.parse(req.body.permitData);
       
-      // Add photo if uploaded
       if (req.file) {
         permitData.photo = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
       }
 
-      // Validate data
       const validatedData = createPermitSchema.parse(permitData);
-      
-      // Create permit
       const permit = await storage.createPermit(validatedData);
       
-      // Generate QR code
       const { payload, signature } = generateQRPayload(permit.id);
-      
-      // Create card record
       const card = await storage.createCard({
         permitId: permit.id,
         qrPayload: payload,
@@ -80,7 +184,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get permits
-  app.get('/api/permits', async (req, res) => {
+  app.get('/api/permits', requireAuth, async (req, res) => {
     try {
       const { zone, status, search, limit = '50', offset = '0' } = req.query;
       
@@ -100,7 +204,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get single permit
-  app.get('/api/permits/:id', async (req, res) => {
+  app.get('/api/permits/:id', requireAuth, async (req, res) => {
     try {
       const permit = await storage.getPermit(req.params.id);
       if (!permit) {
@@ -112,34 +216,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Update permit
-  app.put('/api/permits/:id', async (req, res) => {
-    try {
-      const updatedPermit = await storage.updatePermit(req.params.id, req.body);
-      if (!updatedPermit) {
-        return res.status(404).json({ message: 'Permit not found' });
-      }
-      res.json(updatedPermit);
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to update permit' });
-    }
-  });
-
-  // Delete permit
-  app.delete('/api/permits/:id', async (req, res) => {
-    try {
-      const success = await storage.deletePermit(req.params.id);
-      if (!success) {
-        return res.status(404).json({ message: 'Permit not found' });
-      }
-      res.json({ message: 'Permit deleted successfully' });
-    } catch (error) {
-      res.status(500).json({ message: 'Failed to delete permit' });
-    }
-  });
-
   // Generate card PDF
-  app.get('/api/cards/:permitId/pdf', async (req, res) => {
+  app.get('/api/cards/:permitId/pdf', requireAuth, async (req, res) => {
     try {
       const permit = await storage.getPermit(req.params.permitId);
       if (!permit) {
@@ -164,7 +242,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Generate batch PDF
-  app.post('/api/cards/batch-pdf', async (req, res) => {
+  app.post('/api/cards/batch-pdf', requireAuth, requireAdmin, async (req, res) => {
     try {
       const { permitIds } = req.body;
       
@@ -205,7 +283,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { qrData } = req.body;
       
-      // Parse QR data URL
       const url = new URL(qrData);
       if (url.protocol !== 'peche:' || url.hostname !== 'verify') {
         return res.status(400).json({ message: 'Invalid QR code format' });
@@ -218,7 +295,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: 'Missing QR code data' });
       }
 
-      // Verify signature
       const qrPayload = verifyQRSignature(payload, signature);
       if (!qrPayload) {
         return res.status(400).json({ 
@@ -227,7 +303,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Get permit data
       const permit = await storage.getPermit(qrPayload.id);
       if (!permit) {
         return res.status(404).json({ 
@@ -236,15 +311,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Check expiration
       const now = new Date();
       const expiration = new Date(permit.dateExpiration);
       const isExpired = expiration <= now;
 
-      // Log scan
       await storage.createScanLog({
         cardId: permit.card?.id || null,
-        agentId: null, // Would get from auth
+        agentId: null,
         result: isExpired ? 'expired' : 'valid',
         mode: 'online'
       });
@@ -268,11 +341,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Export data
-  app.get('/api/export/csv', async (req, res) => {
+  app.get('/api/export/csv', requireAuth, requireAdmin, async (req, res) => {
     try {
       const permits = await storage.getPermits();
       
-      // Generate CSV
       const headers = [
         'Serial Number', 'Fisher Name', 'Phone', 'Zone', 'Type', 
         'Issue Date', 'Expiration Date', 'Status'
@@ -306,7 +378,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Serve media files
-  app.get('/api/media/:id', async (req, res) => {
+  app.get('/api/media/:id', requireAuth, async (req, res) => {
     try {
       const media = await storage.getMediaByPermitId(req.params.id);
       const photo = media.find(m => m.type === 'photo_identite');

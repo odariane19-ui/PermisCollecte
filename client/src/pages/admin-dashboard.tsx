@@ -244,6 +244,14 @@ export default function AdminDashboard() {
             Synchroniser
           </Button>
           <Button
+            onClick={() => setLocation('/admin/config')}
+            variant="outline"
+            data-testid="button-admin-config"
+          >
+            <i className="fas fa-cog mr-2"></i>
+            Configuration
+          </Button>
+          <Button
             onClick={() => setCurrentView('exports')}
             data-testid="button-show-exports"
           >
