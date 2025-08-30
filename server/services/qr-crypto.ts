@@ -1,15 +1,13 @@
 import crypto from 'crypto';
 
-// Ed25519 key pair for QR code signing
-const PRIVATE_KEY = process.env.QR_PRIVATE_KEY || crypto.generateKeyPairSync('ed25519', {
-  publicKeyEncoding: { type: 'spki', format: 'pem' },
-  privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
-}).privateKey;
+// Validate required environment variables
+if (!process.env.QR_PRIVATE_KEY || !process.env.QR_PUBLIC_KEY) {
+  throw new Error('QR_PRIVATE_KEY and QR_PUBLIC_KEY environment variables must be set');
+}
 
-const PUBLIC_KEY = process.env.QR_PUBLIC_KEY || crypto.generateKeyPairSync('ed25519', {
-  publicKeyEncoding: { type: 'spki', format: 'pem' },
-  privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
-}).publicKey;
+// Ed25519 key pair for QR code signing
+const PRIVATE_KEY = process.env.QR_PRIVATE_KEY;
+const PUBLIC_KEY = process.env.QR_PUBLIC_KEY;
 
 export interface QRPayload {
   id: string;
