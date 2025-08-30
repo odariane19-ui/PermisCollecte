@@ -6,7 +6,7 @@ import {
   type InsertUser, type InsertConfig, type FullPermit, type CreatePermit 
 } from "@shared/schema";
 import { randomUUID } from "crypto";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
